@@ -6,6 +6,12 @@ import operator
 import pprint
 import copy
 
+STD_NORM_05 = 1.96
+STD_NORM_10 = 1.65
+
+SIM_COUNT = 5
+SIM_OVERSIZED_MULT = 0.3
+
 
 class PlantType(Enum):
     BARLEY = 'BARLEY'
@@ -17,19 +23,19 @@ class PlantType(Enum):
 def create_sell_limitations():
     return {
         PlantType.BARLEY: {
-            "max": 20,
-            "produced": 0
-        },
-        PlantType.WHEAT: {
-            "max": 30,
-            "produced": 0
-        },
-        PlantType.OAT: {
             "max": 50,
             "produced": 0
         },
+        PlantType.WHEAT: {
+            "max": 60,
+            "produced": 0
+        },
+        PlantType.OAT: {
+            "max": 70,
+            "produced": 0
+        },
         PlantType.COLZA: {
-            "max": 10,
+            "max": 20,
             "produced": 0
         },
     }
@@ -85,27 +91,18 @@ class Simulation:
         self.max_income = 0.0
         self.min_income = float('inf')
         self.std_dev_income = 0.0
+        self.left_conf_interval = 0.0
+        self.right_conf_interval = 0.0
 
     def run_simulation(self, fields: Field, plants: Plant):
         for _ in range(self.iterations):
             sell_limitations = create_sell_limitations()
+
             fields_income = 0
             for i in range(len(fields)):
-                plant_price_per_ton = plants[i].take_price_per_ton()
-                plant_harvest_per_ha = plants[i].take_harvest_per_ha()
-
-                harvest_size_tones = fields[i].ha * plant_harvest_per_ha
-                sell_limitations[plants[i].type]['produced'] += harvest_size_tones
-
-                oversized_multiplier = 0.4 if sell_limitations[plants[i].type][
-                    'produced'] > sell_limitations[plants[i].type]['max'] else 1
-
-                field_income = fields[i].get_income(
-                    plant_price_per_ton,
-                    plant_harvest_per_ha
-                ) * oversized_multiplier
-
-                fields_income += field_income
+                income = self.calculate_field_with_plant_income(
+                    sell_limitations, fields[i], plants[i])
+                fields_income += income
 
             self.cases.append(fields_income)
 
@@ -121,16 +118,92 @@ class Simulation:
 
         self.calculate_std_dev_income()
 
+    def calculate_field_with_plant_income(self, sell_limitations, field: Field, plant: Plant):
+        plant_price_per_ton = plant.take_price_per_ton()
+        plant_harvest_per_ha = plant.take_harvest_per_ha()
+
+        harvest_size_tones = field.ha * plant_harvest_per_ha
+
+        plant_sell_limitation = sell_limitations[plant.type]
+
+        # OVERSIZE LIMITATIONS #
+        field_income = 0
+        if plant_sell_limitation['produced'] >= plant_sell_limitation['max']:
+            field_income = field.get_income(
+                plant_price_per_ton,
+                plant_harvest_per_ha
+            ) * SIM_OVERSIZED_MULT
+        elif plant_sell_limitation['produced'] + harvest_size_tones > plant_sell_limitation['max']:
+            plant_tones_missing_to_max = (plant_sell_limitation['max'] -
+                                          plant_sell_limitation['produced'])
+            plant_tones_over_max = (
+                harvest_size_tones - plant_tones_missing_to_max)
+            field_income = (plant_tones_missing_to_max * plant_price_per_ton +
+                            plant_tones_over_max * plant_price_per_ton * SIM_OVERSIZED_MULT)
+        else:
+            field_income = field.get_income(
+                plant_price_per_ton,
+                plant_harvest_per_ha
+            )
+        sell_limitations[plant.type]['produced'] += harvest_size_tones
+        #########################
+
+        return field_income
+
     def calculate_std_dev_income(self):
         std_sum = 0
+
         for fields_income in self.cases:
             calc = (fields_income - self.average_income)
             std_sum += calc * calc
+
         self.std_dev_income = sqrt(std_sum / self.iterations)
+        self.left_conf_interval = self.average_income - self.std_dev_income * STD_NORM_05
+        self.right_conf_interval = self.average_income + self.std_dev_income * STD_NORM_05
 
     def __str__(self):
         return "Iterations {}\nAverage Income {}\nStd. Dev. Income {}\nMax Income {}\nMin Income {}".format(
             self.iterations,  self.average_income, self.std_dev_income, self.max_income, self.min_income)
+
+
+def map_plants_ids_to_plants(plants_ids):
+    return list(map(lambda id: plants[id], plants_ids))
+
+
+def get_simulation_results(fields, plants, plants_variants, simulations_count):
+    results = []
+    print("Running simulations for {} fields, and {} plants, with total variants of {}".format(
+        fields_count, plants_count, len(plants_variants)))
+    for plant_variant in plants_variants:
+        random.seed(1000)  # TODO: Napisać w docu LUL
+        sim = Simulation(simulations_count)
+        mapped_plants = map_plants_ids_to_plants(plant_variant)
+        sim.run_simulation(fields, mapped_plants)
+        plants_names = list(map(lambda x: x.type.name, mapped_plants))
+        results.append((plants_names,
+                        round(sim.average_income, 2),
+                        round(sim.min_income, 2),
+                        round(sim.max_income, 2),
+                        round(sim.std_dev_income, 2),
+                        round(sim.left_conf_interval, 2),
+                        round(sim.right_conf_interval, 2)))
+    results_sorted = sorted(results, key=lambda x: x[1], reverse=True)
+    print("Simulations ended")
+    return results_sorted
+
+
+def save_results_to_csv(results):
+    print("Saving results...")
+    with open('zniwa.csv', 'w') as f:
+        fields_input_string = "{}," * len(fields)
+        fields_numbers_arr = list(range(1, len(fields) + 1))
+        header_line = (fields_input_string +
+                       "srednia,minimum,maksimum,odchylenie,dolny przedział ufności,górny przedział ufności\n").format(*fields_numbers_arr)
+        lines = list(map(lambda x: (fields_input_string + "{},{},{},{},{},{}\n").format(
+            *x[0], x[1], x[2], x[3], x[4], x[5], x[6]), results))
+        lines.insert(0, header_line)
+        f.writelines(lines)
+    print("Results saved.")
 
 
 barley = Plant(
@@ -229,17 +302,11 @@ colza = Plant(
     )
 )
 
-
-def map_plants_ids_to_plants(plants_ids):
-    return list(map(lambda id: plants[id], plants_ids))
-
-
 fields = [
-    Field(15),
-    Field(8),
-    Field(5),
     Field(10),
-    # Field(20),
+    Field(12),
+    Field(8),
+    Field(20),
 ]
 
 plants = [
@@ -251,43 +318,11 @@ plants = [
 
 plants_ids = list(range(len(plants)))
 
+fields_count = len(fields)
+plants_count = len(plants)
 
-def get_simulation_results():
-    fields_count = len(fields)
-    plants_count = len(plants)
+plants_variants = get_all_combinations_with_repetition(
+    plants_ids, fields_count)
 
-    plants_variants = get_all_combinations_with_repetition(
-        plants_ids, fields_count)
-    results = []
-    print("Running simulations for {} fields, and {} plants, with total variants of {}".format(
-        fields_count, plants_count, len(plants_variants)))
-    for plant_variant in plants_variants:
-        sim = Simulation(10000)
-        mapped_plants = map_plants_ids_to_plants(plant_variant)
-        sim.run_simulation(fields, mapped_plants)
-        plants_names = list(map(lambda x: x.type.name, mapped_plants))
-        results.append((plants_names, round(sim.average_income, 2), round(
-            sim.min_income, 2), round(sim.max_income, 2), round(sim.std_dev_income, 2)))
-    results_sorted = sorted(results, key=lambda x: x[1], reverse=True)
-    print("Simulations ended")
-    return results_sorted
-
-
-results = get_simulation_results()
-
-
-def save_results_to_csv(results):
-    print("Saving results...")
-    with open('zniwa.csv', 'w') as f:
-        fields_input_string = "{}," * len(fields)
-        fields_numbers_arr = list(range(1, len(fields) + 1))
-        header_line = (fields_input_string +
-                       "srednia,minimum,maksimum,odchylenie\n").format(*fields_numbers_arr)
-        lines = list(map(lambda x: (fields_input_string + "{},{},{},{}\n").format(
-            *x[0], x[1], x[2], x[3], x[4]), results))
-        lines.insert(0, header_line)
-        f.writelines(lines)
-    print("Results saved.")
-
-
+results = get_simulation_results(fields, plants, plants_variants, SIM_COUNT)
 save_results_to_csv(results)
