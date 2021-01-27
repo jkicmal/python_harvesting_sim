@@ -3,14 +3,14 @@ from enum import Enum
 from math import sqrt
 from itertools import product
 import operator
-import pprint
+from pprint import pprint
 import copy
 
 STD_NORM_05 = 1.96
 STD_NORM_10 = 1.65
 
-SIM_COUNT = 5
-SIM_OVERSIZED_MULT = 0.3
+SIM_COUNT = 10000
+SIM_OVERSIZED_MULT = 0.5
 
 
 class PlantType(Enum):
@@ -18,6 +18,7 @@ class PlantType(Enum):
     WHEAT = 'WHEAT'
     OAT = 'OAT'
     COLZA = 'COLZA'
+    CORN = 'CORN'
 
 
 def create_sell_limitations():
@@ -38,6 +39,10 @@ def create_sell_limitations():
             "max": 20,
             "produced": 0
         },
+        PlantType.CORN: {
+            "max": 40,
+            "produced": 0
+        }
     }
 
 
@@ -83,7 +88,12 @@ class Field:
 
 
 class Simulation:
-    def __init__(self, iterations: int):
+    def __init__(self, iterations: int, fields: list, plants: list, plants_variant: list):
+        self.fields = fields
+        self.plants_variant = plants_variant
+        self.plants = list(map(lambda id: plants[id], plants_variant))
+
+        fields[0].ha
         self.iterations = iterations
         self.cases = []
         self.sum = 0.0
@@ -94,7 +104,10 @@ class Simulation:
         self.left_conf_interval = 0.0
         self.right_conf_interval = 0.0
 
-    def run_simulation(self, fields: Field, plants: Plant):
+    def run_simulation(self):
+        fields = self.fields
+        plants = self.plants
+
         for _ in range(self.iterations):
             sell_limitations = create_sell_limitations()
 
@@ -162,12 +175,23 @@ class Simulation:
         self.right_conf_interval = self.average_income + self.std_dev_income * STD_NORM_05
 
     def __str__(self):
-        return "Iterations {}\nAverage Income {}\nStd. Dev. Income {}\nMax Income {}\nMin Income {}".format(
-            self.iterations,  self.average_income, self.std_dev_income, self.max_income, self.min_income)
+        s = (
+            "Iterations {}\n" + "Names {}\n" + "Average Income {}\n" +
+            "Std. Dev. Income {}\n"+"Max Income {}\n" +
+            "Min Income {}\n" + "Left conf {}\n" + "Right conf {}\n"
+        )
+        return s.format(
+            self.iterations, self.get_plants_variant_names(),
+            self.average_income, self.std_dev_income, self.max_income,
+            self.min_income, self.left_conf_interval,
+            self.right_conf_interval)
+
+    def get_plants_variant_names(self):
+        return " ".join(list(map(lambda x: x.type.name, self.plants)))
 
 
 def map_plants_ids_to_plants(plants_ids):
-    return list(map(lambda id: plants[id], plants_ids))
+    return
 
 
 def get_simulation_results(fields, plants, plants_variants, simulations_count):
@@ -175,35 +199,81 @@ def get_simulation_results(fields, plants, plants_variants, simulations_count):
     print("Running simulations for {} fields, and {} plants, with total variants of {}".format(
         fields_count, plants_count, len(plants_variants)))
     for plant_variant in plants_variants:
-        random.seed(1000)  # TODO: Napisać w docu LUL
-        sim = Simulation(simulations_count)
-        mapped_plants = map_plants_ids_to_plants(plant_variant)
-        sim.run_simulation(fields, mapped_plants)
-        plants_names = list(map(lambda x: x.type.name, mapped_plants))
-        results.append((plants_names,
-                        round(sim.average_income, 2),
-                        round(sim.min_income, 2),
-                        round(sim.max_income, 2),
-                        round(sim.std_dev_income, 2),
-                        round(sim.left_conf_interval, 2),
-                        round(sim.right_conf_interval, 2)))
-    results_sorted = sorted(results, key=lambda x: x[1], reverse=True)
+        random.seed(59012)  # TODO: Napisać w docu LUL
+        simulation = Simulation(
+            simulations_count, fields, plants, plant_variant)
+        simulation.run_simulation()
+        results.append(simulation)
+
+    results_sorted = sorted(
+        results, key=lambda sim: sim.average_income, reverse=True)
     print("Simulations ended")
     return results_sorted
 
 
-def save_results_to_csv(results):
-    print("Saving results...")
-    with open('zniwa.csv', 'w') as f:
-        fields_input_string = "{}," * len(fields)
-        fields_numbers_arr = list(range(1, len(fields) + 1))
-        header_line = (fields_input_string +
-                       "srednia,minimum,maksimum,odchylenie,dolny przedział ufności,górny przedział ufności\n").format(*fields_numbers_arr)
-        lines = list(map(lambda x: (fields_input_string + "{},{},{},{},{},{}\n").format(
-            *x[0], x[1], x[2], x[3], x[4], x[5], x[6]), results))
-        lines.insert(0, header_line)
+# def save_results_to_csv(results):
+#     print("Saving results...")
+#     with open('zniwa.csv', 'w') as f:
+#         fields_input_string = "{}," * len(fields)
+#         fields_numbers_arr = list(range(1, len(fields) + 1))
+#         header_line = (fields_input_string +
+#                        "srednia,minimum,maksimum,odchylenie,dolny przedział ufności,górny przedział ufności\n").format(*fields_numbers_arr)
+#         lines = list(map(lambda x: (fields_input_string + "{},{},{},{},{},{}\n").format(
+#             *x[0], x[1], x[2], x[3], x[4], x[5], x[6]), results))
+#         lines.insert(0, header_line)
+#         f.writelines(lines)
+#     print("Results saved.")
+
+def generate_comparison_matrice_from_results(results):
+    avg_comparison_matrice = []
+    for i in range(len(results)):
+        comparison_row = []
+        for j in range(len(results)):
+            # Przedziały ufności
+            if (
+                results[i].right_conf_interval < results[j].left_conf_interval or
+                results[i].left_conf_interval > results[j].right_conf_interval
+            ):
+                # Przedziały ufności na siebie nie zachodzą, porównujemy średnie
+                i_is_greater_than_j_raw = (
+                    results[i].average_income > results[j].average_income)
+                comparison_row.append(1 if i_is_greater_than_j_raw else 0)
+            else:
+                # Przedziały ufności na siebie zachodzą
+                comparison_row.append(0)
+        avg_comparison_matrice.append(comparison_row)
+    return avg_comparison_matrice
+
+
+def generate_comparison_matrice_file(results, comparison_matrice):
+    with open('comparisons.csv', 'w') as f:
+        header = ",".join(
+            map(lambda result: result.get_plants_variant_names(), results))
+        lines = ["," + header + ",BETTER THAN COUNT" + "\n"]
+        for i in range(len(comparison_matrice)):
+            line = "{},{},{}".format(
+                results[i].get_plants_variant_names(),
+                ",".join(list(map(lambda x: str(x), comparison_matrice[i]))),
+                str(sum(comparison_matrice[i])),
+            )
+            lines.append(line + "\n")
         f.writelines(lines)
-    print("Results saved.")
+
+
+def generate_calculated_comparison_matrice_file(results, comparison_matrice):
+    with open('comparisons_calculated.csv', 'w') as f:
+        header = "VARIANT,BETTER THAN COUNT,INCOME AVG,LEFT CONF,RIGHT CONF\n"
+        lines = [header]
+        for i in range(len(comparison_matrice)):
+            line = "{},{},{},{},{}".format(
+                results[i].get_plants_variant_names(),
+                sum(comparison_matrice[i]),
+                results[i].average_income,
+                results[i].left_conf_interval,
+                results[i].right_conf_interval
+            )
+            lines.append(line + "\n")
+        f.writelines(lines)
 
 
 barley = Plant(
@@ -219,15 +289,15 @@ barley = Plant(
         (720.74, 0.07),
     ),
     (
-        (1.41, 0.02),
-        (2.0, 0.06),
-        (2.7, 0.1),
-        (3.5, 0.13),
-        (4.4, 0.23),
-        (5.66, 0.36),
-        (7.38, 0.08),
-        (9.45, 0.02),
+        (2.70, 0.10),
+        (3.50, 0.13),
+        (4.40, 0.25),
+        (5.66, 0.35),
+        (7.38, 0.13),
+        (9.45, 0.04),
     )
+
+
 )
 
 wheat = Plant(
@@ -243,12 +313,11 @@ wheat = Plant(
         (921.84, 0.07),
     ),
     (
-        (2.00, 0.02),
         (2.67, 0.06),
         (3.11, 0.10),
-        (3.56, 0.13),
-        (4.22, 0.23),
-        (4.72, 0.36),
+        (3.56, 0.14),
+        (4.22, 0.25),
+        (4.72, 0.35),
         (5.87, 0.08),
         (6.00, 0.02),
     )
@@ -267,14 +336,13 @@ oat = Plant(
         (595.23, 0.07),
     ),
     (
-        (2.10, 0.02),
-        (2.33, 0.06),
-        (3.03, 0.10),
+        (2.53, 0.04),
+        (3.03, 0.07),
         (3.36, 0.13),
-        (3.67, 0.23),
+        (3.67, 0.27),
         (3.93, 0.36),
         (4.55, 0.08),
-        (5.62, 0.02),
+        (5.62, 0.05),
     )
 )
 
@@ -291,14 +359,37 @@ colza = Plant(
         (1811.00, 0.07),
     ),
     (
-        (1.58, 0.02),
-        (1.79, 0.06),
-        (1.98, 0.10),
-        (2.23, 0.13),
-        (2.46, 0.23),
-        (2.88, 0.36),
-        (3.19, 0.08),
+        (1.58, 0.06),
+        (1.79, 0.08),
+        (1.98, 0.12),
+        (2.23, 0.15),
+        (2.46, 0.27),
+        (2.88, 0.23),
+        (3.19, 0.07),
         (4.46, 0.02),
+    )
+)
+
+corn = Plant(
+    PlantType.CORN,
+    (
+        (630.33, 0.05),
+        (645.54, 0.13),
+        (657.91, 0.18),
+        (679.00, 0.24),
+        (730.32, 0.26),
+        (777.77, 0.07),
+        (810.76, 0.07),
+    ),
+    (
+        (6.78, 0.05),
+        (6.90, 0.13),
+        (7.12, 0.20),
+        (7.45, 0.24),
+        (8.12, 0.17),
+        (9.32, 0.10),
+        (11.22, 0.08),
+        (13.45, 0.03),
     )
 )
 
@@ -306,6 +397,7 @@ fields = [
     Field(10),
     Field(12),
     Field(8),
+    # Field(3),
     Field(20),
 ]
 
@@ -313,7 +405,8 @@ plants = [
     barley,
     wheat,
     oat,
-    colza
+    colza,
+    corn
 ]
 
 plants_ids = list(range(len(plants)))
@@ -323,6 +416,8 @@ plants_count = len(plants)
 
 plants_variants = get_all_combinations_with_repetition(
     plants_ids, fields_count)
-
 results = get_simulation_results(fields, plants, plants_variants, SIM_COUNT)
-save_results_to_csv(results)
+comparison_matrice = generate_comparison_matrice_from_results(results)
+generate_calculated_comparison_matrice_file(results, comparison_matrice)
+generate_comparison_matrice_file(results, comparison_matrice)
+# save_results_to_csv(results)
