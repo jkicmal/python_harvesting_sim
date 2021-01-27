@@ -211,19 +211,6 @@ def get_simulation_results(fields, plants, plants_variants, simulations_count):
     return results_sorted
 
 
-# def save_results_to_csv(results):
-#     print("Saving results...")
-#     with open('zniwa.csv', 'w') as f:
-#         fields_input_string = "{}," * len(fields)
-#         fields_numbers_arr = list(range(1, len(fields) + 1))
-#         header_line = (fields_input_string +
-#                        "srednia,minimum,maksimum,odchylenie,dolny przedział ufności,górny przedział ufności\n").format(*fields_numbers_arr)
-#         lines = list(map(lambda x: (fields_input_string + "{},{},{},{},{},{}\n").format(
-#             *x[0], x[1], x[2], x[3], x[4], x[5], x[6]), results))
-#         lines.insert(0, header_line)
-#         f.writelines(lines)
-#     print("Results saved.")
-
 def generate_comparison_matrice_from_results(results):
     avg_comparison_matrice = []
     for i in range(len(results)):
@@ -245,7 +232,27 @@ def generate_comparison_matrice_from_results(results):
     return avg_comparison_matrice
 
 
+def generate_results_file(results):
+    print("Saving results...")
+    with open('results.csv', 'w') as f:
+        header = ("VARIANT,AVG,MIN,MAX,STD DEV,LEFT CONF,RIGHT CONF\n").format()
+        lines = [header]
+        for result in results:
+            line = "{},{},{},{},{},{},{}\n".format(
+                result.get_plants_variant_names(),
+                result.average_income,
+                result.min_income,
+                result.max_income,
+                result.std_dev_income,
+                result.left_conf_interval,
+                result.right_conf_interval
+            )
+            lines.append(line)
+        f.writelines(lines)
+
+
 def generate_comparison_matrice_file(results, comparison_matrice):
+    print("Saving comparisons matrice...")
     with open('comparisons.csv', 'w') as f:
         header = ",".join(
             map(lambda result: result.get_plants_variant_names(), results))
@@ -261,6 +268,7 @@ def generate_comparison_matrice_file(results, comparison_matrice):
 
 
 def generate_calculated_comparison_matrice_file(results, comparison_matrice):
+    print("Saving calculated comparisons matrice...")
     with open('comparisons_calculated.csv', 'w') as f:
         header = "VARIANT,BETTER THAN COUNT,INCOME AVG,LEFT CONF,RIGHT CONF\n"
         lines = [header]
@@ -397,7 +405,6 @@ fields = [
     Field(10),
     Field(12),
     Field(8),
-    # Field(3),
     Field(20),
 ]
 
@@ -418,6 +425,8 @@ plants_variants = get_all_combinations_with_repetition(
     plants_ids, fields_count)
 results = get_simulation_results(fields, plants, plants_variants, SIM_COUNT)
 comparison_matrice = generate_comparison_matrice_from_results(results)
+
+generate_results_file(results)
 generate_calculated_comparison_matrice_file(results, comparison_matrice)
 generate_comparison_matrice_file(results, comparison_matrice)
 # save_results_to_csv(results)
