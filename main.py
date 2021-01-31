@@ -415,7 +415,7 @@ plants = [
     wheat,
     oat,
     colza,
-    # corn
+    corn
 ]
 
 plants_ids = list(range(len(plants)))
