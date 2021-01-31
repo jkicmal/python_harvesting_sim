@@ -1,10 +1,7 @@
 import random
-from enum import Enum
 from math import sqrt
+from enum import Enum
 from itertools import product
-import operator
-from pprint import pprint
-import copy
 
 STD_NORM_05 = 1.96
 STD_NORM_10 = 1.65
@@ -68,9 +65,13 @@ class Plant:
         self.type = type
         self.price_per_ton_dist = price_per_ton_dist
         self.harvest_per_ha_dist = harvest_per_ha_dist
+        self.price_per_ton = None
 
-    def take_price_per_ton(self):
-        return take_value_from_dist(self.price_per_ton_dist)
+    def set_random_price_per_ton(self):
+        self.price_per_ton = take_value_from_dist(self.price_per_ton_dist)
+
+    def get_price_per_ton(self):
+        return self.price_per_ton
 
     def take_harvest_per_ha(self):
         return take_value_from_dist(self.harvest_per_ha_dist)
@@ -111,6 +112,9 @@ class Simulation:
         for _ in range(self.iterations):
             sell_limitations = create_sell_limitations()
 
+            for plant in plants:
+                plant.set_random_price_per_ton()
+
             fields_income = 0
             for i in range(len(fields)):
                 income = self.calculate_field_with_plant_income(
@@ -132,7 +136,7 @@ class Simulation:
         self.calculate_std_dev_income()
 
     def calculate_field_with_plant_income(self, sell_limitations, field: Field, plant: Plant):
-        plant_price_per_ton = plant.take_price_per_ton()
+        plant_price_per_ton = plant.get_price_per_ton()
         plant_harvest_per_ha = plant.take_harvest_per_ha()
 
         harvest_size_tones = field.ha * plant_harvest_per_ha
@@ -304,8 +308,6 @@ barley = Plant(
         (7.38, 0.13),
         (9.45, 0.04),
     )
-
-
 )
 
 wheat = Plant(
@@ -413,7 +415,7 @@ plants = [
     wheat,
     oat,
     colza,
-    corn
+    # corn
 ]
 
 plants_ids = list(range(len(plants)))
